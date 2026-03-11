@@ -28,6 +28,7 @@ services:
     # Example configuration to start Admin server:
     command:
       - --enable-adminserver
+      - --workers=${TASK_EXECUTOR_NUM:-1}
     ports:
       - ${SVR_WEB_HTTP_PORT}:80
       - ${SVR_WEB_HTTPS_PORT}:443
@@ -107,7 +108,7 @@ services:
         reservations:
           devices:
             - driver: nvidia
-              device_ids: ["5"]
+              device_ids: ["4", "5"]
               capabilities: [gpu]
 
 
