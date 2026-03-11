@@ -287,7 +287,22 @@ def init_settings():
     elif STORAGE_IMPL_TYPE == 'GCS':
         GCS = get_base_config("gcs", {})
     elif STORAGE_IMPL_TYPE == 'LOCAL_FS':
-        LOCAL_FS = get_base_config("local_fs", {}) or {"base_path": "/data/xfeng/ragflow-storage"}
+        LOCAL_FS = get_base_config("local_fs", {}) or {
+            "base_path": os.environ.get("LOCAL_FS_PATH", "/ragflow/storage")
+        }
+        # 同步更新 LocalFSStorage 单例的 base_path：
+        # 单例在 import 阶段已实例化（settings.LOCAL_FS 当时为空），
+        # init_settings() 执行后需将正确路径写回单例，确保运行时路径正确。
+        _local_fs_base = LOCAL_FS.get("base_path", "/ragflow/storage")
+        from rag.utils.local_fs_conn import LocalFSStorage as _LocalFSStorage
+        _lfs = _LocalFSStorage()
+        if _lfs.base_path != _local_fs_base:
+            logging.info(
+                f"LocalFSStorage: updating base_path from '{_lfs.base_path}' to '{_local_fs_base}'"
+            )
+            _lfs.base_path = _local_fs_base
+            import os as _os
+            _os.makedirs(_local_fs_base, exist_ok=True)
 
     global STORAGE_IMPL
     storage_impl = StorageFactory.create(Storage[STORAGE_IMPL_TYPE])
