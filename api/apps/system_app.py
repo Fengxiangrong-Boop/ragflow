@@ -111,7 +111,11 @@ def status():
 
     st = timer()
     try:
-        settings.STORAGE_IMPL.health()
+        raw_health = settings.STORAGE_IMPL.health()
+        if not (raw_health if isinstance(raw_health, bool) else bool(raw_health)):
+            raise RuntimeError(
+                f"Storage health check returned non-healthy value: {raw_health!r}"
+            )
         res["storage"] = {
             "storage": settings.STORAGE_IMPL_TYPE.lower(),
             "status": "green",

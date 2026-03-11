@@ -25,7 +25,7 @@ class LocalFSStorage:
 
     def __init__(self):
         # 修复 Bug3：直接从环境变量读取，避免 settings.LOCAL_FS 初始化时机问题
-        self.base_path = (
+        self.base_path = os.path.abspath(
             os.environ.get("LOCAL_FS_PATH")
             or os.environ.get("LOCAL_FS_BASE_PATH")
             or "/ragflow/storage"
@@ -40,9 +40,40 @@ class LocalFSStorage:
                     f"Failed to create local storage base path {self.base_path}: {e}"
                 )
 
+    def _resolve_path(self, *parts):
+        """
+        将相对路径片段安全拼接到 base_path 下，避免路径穿越。
+
+        Raises:
+            ValueError: 当路径为空、绝对路径或尝试跳出 base_path 时抛出。
+        """
+        rel_path = os.path.normpath(os.path.join(*(str(p) for p in parts)))
+        if rel_path in {"", "."}:
+            raise ValueError("Path must not be empty.")
+        if os.path.isabs(rel_path) or rel_path.startswith("..") or f"{os.sep}.." in rel_path:
+            raise ValueError(f"Unsafe path: {rel_path}")
+
+        full_path = os.path.abspath(os.path.join(self.base_path, rel_path))
+        try:
+            if os.path.commonpath([self.base_path, full_path]) != self.base_path:
+                raise ValueError(f"Path escapes base_path: {rel_path}")
+        except ValueError as e:
+            raise ValueError(f"Invalid path: {rel_path}") from e
+        return full_path
+
+    def _get_bucket_path(self, bucket):
+        """将 bucket 解析为 base_path 下的安全目录路径。"""
+        if not bucket or not str(bucket).strip():
+            raise ValueError("Bucket must not be empty.")
+        return self._resolve_path(bucket)
+
     def _get_full_path(self, bucket, fnm):
-        """将 bucket + 文件名拼成绝对路径。"""
-        return os.path.join(self.base_path, bucket, fnm)
+        """将 bucket + 文件名拼成 base_path 下的安全绝对路径。"""
+        if not bucket or not str(bucket).strip():
+            raise ValueError("Bucket must not be empty.")
+        if fnm is None or not str(fnm).strip():
+            raise ValueError("File name must not be empty.")
+        return self._resolve_path(bucket, fnm)
 
     def health(self):
         """检查存储根目录可读写。返回 bool。"""
@@ -100,12 +131,12 @@ class LocalFSStorage:
 
     def bucket_exists(self, bucket):
         """检查存储桶目录是否存在。返回 bool。"""
-        bucket_path = os.path.join(self.base_path, bucket)
+        bucket_path = self._get_bucket_path(bucket)
         return os.path.exists(bucket_path)
 
     def remove_bucket(self, bucket):
         """递归删除存储桶目录及其所有内容。"""
-        bucket_path = os.path.join(self.base_path, bucket)
+        bucket_path = self._get_bucket_path(bucket)
         try:
             if os.path.exists(bucket_path):
                 shutil.rmtree(bucket_path)

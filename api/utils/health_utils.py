@@ -62,8 +62,12 @@ def check_doc_engine() -> tuple[bool, dict]:
 def check_storage() -> tuple[bool, dict]:
     st = timer()
     try:
-        settings.STORAGE_IMPL.health()
-        return True, {"elapsed": f"{(timer() - st) * 1000.0:.1f}"}
+        raw_health = settings.STORAGE_IMPL.health()
+        ok = raw_health if isinstance(raw_health, bool) else bool(raw_health)
+        meta = {"elapsed": f"{(timer() - st) * 1000.0:.1f}"}
+        if not ok:
+            meta["error"] = f"Storage health check returned non-healthy value: {raw_health!r}"
+        return ok, meta
     except Exception as e:
         return False, {"elapsed": f"{(timer() - st) * 1000.0:.1f}", "error": str(e)}
 
