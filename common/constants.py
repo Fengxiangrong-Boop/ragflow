@@ -165,6 +165,7 @@ class Storage(Enum):
     OSS = 5
     OPENDAL = 6
     GCS = 7
+    LOCAL_FS = 8
 
 
 class MemoryType(Enum):

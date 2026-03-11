@@ -62,8 +62,10 @@ user_default_llm:
 #   access_key: 'access_key'
 #   secret_key: 'secret_key'
 #   region: 'region'
-#gcs:
-#  bucket: 'bridgtl-edm-d-bucket-ragflow'
+# gcs:
+#   bucket: 'bridgtl-edm-d-bucket-ragflow'
+local_fs:
+  base_path: '/data/xfeng/ragflow-storage'
 # oss:
 #   access_key: 'access_key'
 #   secret_key: 'secret_key'

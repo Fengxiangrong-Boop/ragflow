@@ -36,6 +36,7 @@ from rag.utils.minio_conn import RAGFlowMinio
 from rag.utils.opendal_conn import OpenDALStorage
 from rag.utils.s3_conn import RAGFlowS3
 from rag.utils.oss_conn import RAGFlowOSS
+from rag.utils.local_fs_conn import LocalFSStorage
 
 from rag.nlp import search
 
@@ -115,6 +116,7 @@ OB = {}
 OSS = {}
 OS = {}
 GCS = {}
+LOCAL_FS = {}
 
 DOC_MAXIMUM_SIZE: int = 128 * 1024 * 1024
 DOC_BULK_SIZE: int = 4
@@ -159,6 +161,7 @@ class StorageFactory:
         Storage.OSS: RAGFlowOSS,
         Storage.OPENDAL: OpenDALStorage,
         Storage.GCS: RAGFlowGCS,
+        Storage.LOCAL_FS: LocalFSStorage,
     }
 
     @classmethod
@@ -269,7 +272,7 @@ def init_settings():
         INFINITY = get_base_config("infinity", {"uri": "infinity:23817"})
         msgStoreConn = memory_infinity_conn.InfinityConnection()
 
-    global AZURE, S3, MINIO, OSS, GCS
+    global AZURE, S3, MINIO, OSS, GCS, LOCAL_FS
     if STORAGE_IMPL_TYPE in ['AZURE_SPN', 'AZURE_SAS']:
         AZURE = get_base_config("azure", {})
     elif STORAGE_IMPL_TYPE == 'AWS_S3':
@@ -280,6 +283,8 @@ def init_settings():
         OSS = get_base_config("oss", {})
     elif STORAGE_IMPL_TYPE == 'GCS':
         GCS = get_base_config("gcs", {})
+    elif STORAGE_IMPL_TYPE == 'LOCAL_FS':
+        LOCAL_FS = get_base_config("local_fs", {}) or {"base_path": "/data/xfeng/ragflow-storage"}
 
     global STORAGE_IMPL
     storage_impl = StorageFactory.create(Storage[STORAGE_IMPL_TYPE])

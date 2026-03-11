@@ -1,3 +1,5 @@
+import os
+import shutil
 import opendal
 import logging
 import pymysql
