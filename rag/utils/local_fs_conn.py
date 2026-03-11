@@ -34,12 +34,10 @@ class LocalFSStorage:
 
     def get(self, bucket, fnm, tenant_id=None):
         full_path = self._get_full_path(bucket, fnm)
-        try:
-            with open(full_path, 'rb') as f:
-                return f.read()
-        except Exception as e:
-            logging.error(f"Failed to get file {full_path}: {e}")
-            return None
+        if not os.path.exists(full_path):
+            raise FileNotFoundError(f"File not found: {full_path}")
+        with open(full_path, 'rb') as f:
+            return f.read()
 
     def rm(self, bucket, fnm, tenant_id=None):
         full_path = self._get_full_path(bucket, fnm)
