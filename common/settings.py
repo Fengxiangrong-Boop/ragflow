@@ -232,6 +232,9 @@ def init_settings():
     global SECRET_KEY
     SECRET_KEY = _get_or_create_secret_key()
 
+    global STORAGE_IMPL_TYPE
+    STORAGE_IMPL_TYPE = get_base_config(RAG_FLOW_SERVICE_NAME, {}).get("storage_impl", STORAGE_IMPL_TYPE)
+
 
     # authentication
     authentication_conf = get_base_config("authentication", {})

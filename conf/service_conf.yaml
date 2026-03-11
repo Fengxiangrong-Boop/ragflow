@@ -1,6 +1,7 @@
 ragflow:
   host: 0.0.0.0
   http_port: 9380
+  storage_impl: 'MINIO' # Optional: MINIO, LOCAL_FS, AWS_S3, etc.
 admin:
   host: 0.0.0.0
   http_port: 9381
