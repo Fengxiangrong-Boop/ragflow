@@ -1,6 +1,7 @@
 ragflow:
   host: ${RAGFLOW_HOST:-0.0.0.0}
   http_port: 9380
+  storage_impl: ${STORAGE_IMPL:-MINIO}
 admin:
   host: ${RAGFLOW_HOST:-0.0.0.0}
   http_port: 9381
@@ -48,6 +49,8 @@ user_default_llm:
     embedding_model:
       api_key: 'xxx'
       base_url: 'http://${TEI_HOST}:80'
+local_fs:
+  base_path: ${LOCAL_FS_PATH:-/ragflow/storage}
 # postgres:
 #   name: '${POSTGRES_DBNAME:-rag_flow}'
 #   user: '${POSTGRES_USER:-rag_flow}'
