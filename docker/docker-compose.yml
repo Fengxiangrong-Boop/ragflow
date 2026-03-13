@@ -85,6 +85,9 @@ services:
       - ${ADMIN_SVR_HTTP_PORT}:9381
       - ${SVR_MCP_PORT}:9382 # entry for MCP (host_port:docker_port). The docker_port must match the value you set for `mcp-port` above.
     volumes:
+      - ../common/constants.py:/ragflow/common/constants.py
+      - ../common/settings.py:/ragflow/common/settings.py
+      - ../rag/utils/local_fs_conn.py:/ragflow/rag/utils/local_fs_conn.py
       - ./ragflow-venv:/ragflow/.venv
       - ./pip-cache:/root/.cache/uv
       - ./ragflow-logs:/ragflow/logs
@@ -96,6 +99,7 @@ services:
       - ${LOCAL_FS_HOST_PATH:-/data/xfeng/ragflow-storage}:${LOCAL_FS_PATH:-/ragflow/storage}
     env_file: .env
     environment:
+      - NVIDIA_VISIBLE_DEVICES=4
       - STORAGE_IMPL=${STORAGE_IMPL:-MINIO}
       - LOCAL_FS_PATH=${LOCAL_FS_PATH:-/ragflow/storage}
       - LD_LIBRARY_PATH=/ragflow/.venv/lib/python3.12/site-packages/nvidia/cublas/lib:/ragflow/.venv/lib/python3.12/site-packages/nvidia/cudnn/lib:/ragflow/.venv/lib/python3.12/site-packages/nvidia/curand/lib:/ragflow/.venv/lib/python3.12/site-packages/nvidia/cufft/lib:/ragflow/.venv/lib/python3.12/site-packages/nvidia/cusolver/lib:/ragflow/.venv/lib/python3.12/site-packages/nvidia/cusparse/lib:/ragflow/.venv/lib/python3.12/site-packages/nvidia/cuda_runtime/lib:/ragflow/.venv/lib/python3.12/site-packages/nvidia/cuda_nvrtc/lib:/ragflow/.venv/lib/python3.12/site-packages/nvidia/nvjitlink/lib
@@ -111,7 +115,7 @@ services:
         reservations:
           devices:
             - driver: nvidia
-              device_ids: ["4", "5"]
+              device_ids: ["4"]
               capabilities: [gpu]
 
 
