@@ -16,12 +16,10 @@
 import asyncio
 import base64
 import logging
-import os
 import re
 import sys
 import time
 from concurrent.futures import ThreadPoolExecutor
-from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from typing import Union
 
@@ -38,36 +36,8 @@ from common.constants import TaskStatus, FileSource, ParserType
 from api.db.services.knowledgebase_service import KnowledgebaseService
 from api.db.services.task_service import TaskService
 from api.utils.file_utils import filename_type, read_potential_broken_pdf, thumbnail_img, sanitize_path
-from common.file_utils import get_project_base_directory
 from rag.llm.cv_model import GptV4
 from common import settings
-
-
-def get_upload_logger():
-    logger = logging.getLogger("upload")
-    if getattr(logger, "_ragflow_inited", False):
-        return logger
-
-    log_path = os.path.abspath(os.path.join(get_project_base_directory(), "logs", "upload.log"))
-    os.makedirs(os.path.dirname(log_path), exist_ok=True)
-
-    formatter = logging.Formatter("%(asctime)-15s %(levelname)-8s %(process)d %(message)s")
-    has_file_handler = False
-    for handler in logger.handlers:
-        if isinstance(handler, RotatingFileHandler) and os.path.abspath(getattr(handler, "baseFilename", "")) == log_path:
-            has_file_handler = True
-            break
-
-    if not has_file_handler:
-        file_handler = RotatingFileHandler(log_path, maxBytes=10 * 1024 * 1024, backupCount=5)
-        file_handler.setFormatter(formatter)
-        logger.addHandler(file_handler)
-
-    logger.setLevel(logging.INFO)
-    logger.propagate = False
-    logger._ragflow_inited = True
-    logger.info(f"upload log path: {log_path}")
-    return logger
 
 
 class FileService(CommonService):
@@ -459,39 +429,6 @@ class FileService(CommonService):
     @classmethod
     @DB.connection_context()
     def upload_document(self, kb, file_objs, user_id, src="local", parent_path: str | None = None):
-        upload_logger = get_upload_logger()
-
-        def format_cost(seconds: float) -> str:
-            if seconds < 1:
-                return f"{int(seconds * 1000)}ms"
-            if seconds < 60:
-                return f"{seconds:.2f}s"
-            minutes = int(seconds // 60)
-            secs = int(round(seconds - minutes * 60))
-            return f"{minutes}m{secs}s"
-
-        def run_step(step_idx: int, step_name: str, fn):
-            begin = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
-            upload_logger.info(f"当前执行第{step_idx}/5步骤: {step_name} 开始时间:{begin}")
-            start = time.perf_counter()
-            try:
-                return fn()
-            finally:
-                upload_logger.info(f"第{step_idx}/5步骤执行完成,共耗时{format_cost(time.perf_counter() - start)}")
-
-        def run_substep(step_idx: int, sub_idx: int, sub_total: int, sub_name: str, fn):
-            begin = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
-            upload_logger.info(
-                f"当前执行第{step_idx}/5步骤 子任务{sub_idx}/{sub_total}: {sub_name} 开始时间:{begin}"
-            )
-            start = time.perf_counter()
-            try:
-                return fn()
-            finally:
-                upload_logger.info(
-                    f"第{step_idx}/5步骤 子任务{sub_idx}/{sub_total}执行完成,共耗时{format_cost(time.perf_counter() - start)}"
-                )
-
         root_folder = self.get_root_folder(user_id)
         pf_id = root_folder["id"]
         self.init_knowledgebase_docs(pf_id, user_id)
@@ -503,65 +440,36 @@ class FileService(CommonService):
         err, files = [], []
         for file in file_objs:
             doc_id = file.id if hasattr(file, "id") else get_uuid()
-            file_name = file.filename if hasattr(file, "filename") else str(doc_id)
-            upload_logger.info(f"接收到上传文件 {file_name}，开始处理，一共5/5步骤")
             e, doc = DocumentService.get_by_id(doc_id)
             if e:
-                doc = run_step(1, "检查文档与命名", lambda: doc.to_dict())
-                blob = run_step(2, "读取文件内容", lambda: file.read())
-                run_step(
-                    3,
-                    "保存文件与缩略图",
-                    lambda: run_substep(
-                        3, 1, 1, "保存文件",
-                        lambda: settings.STORAGE_IMPL.put(kb.id, doc["location"], blob, kb.tenant_id)
-                    ),
-                )
-
-                def update_existing_doc():
-                    doc["size"] = len(blob)
-                    DocumentService.update_by_id(doc["id"], doc)
-
-                run_step(4, "写入文档记录", update_existing_doc)
-                run_step(5, "关联到知识库", lambda: None)
+                blob = file.read()
+                settings.STORAGE_IMPL.put(kb.id, doc.location, blob, kb.tenant_id)
+                doc.size = len(blob)
+                doc = doc.to_dict()
+                DocumentService.update_by_id(doc["id"], doc)
                 continue
             try:
-                def step1_check_name():
-                    DocumentService.check_doc_health(kb.tenant_id, file_name)
-                    filename = duplicate_name(DocumentService.query, name=file_name, kb_id=kb.id)
-                    filetype = filename_type(filename)
-                    if filetype == FileType.OTHER.value:
-                        raise RuntimeError("This type of file has not been supported yet!")
-                    location = filename if not safe_parent_path else f"{safe_parent_path}/{filename}"
-                    while settings.STORAGE_IMPL.obj_exist(kb.id, location):
-                        location += "_"
-                    return filename, filetype, location
+                DocumentService.check_doc_health(kb.tenant_id, file.filename)
+                filename = duplicate_name(DocumentService.query, name=file.filename, kb_id=kb.id)
+                filetype = filename_type(filename)
+                if filetype == FileType.OTHER.value:
+                    raise RuntimeError("This type of file has not been supported yet!")
 
-                filename, filetype, location = run_step(1, "检查文档与命名", step1_check_name)
+                location = filename if not safe_parent_path else f"{safe_parent_path}/{filename}"
+                while settings.STORAGE_IMPL.obj_exist(kb.id, location):
+                    location += "_"
 
-                def step2_read_blob():
-                    data = file.read()
-                    if filetype == FileType.PDF.value:
-                        data = read_potential_broken_pdf(data)
-                    return data
-                blob = run_step(2, "读取文件内容", step2_read_blob)
+                blob = file.read()
+                if filetype == FileType.PDF.value:
+                    blob = read_potential_broken_pdf(blob)
+                settings.STORAGE_IMPL.put(kb.id, location, blob)
 
-                def step3_save_file_and_thumbnail():
-                    run_substep(3, 1, 3, "保存文件", lambda: settings.STORAGE_IMPL.put(kb.id, location, blob))
 
-                    img = run_substep(3, 2, 3, "生成缩略图", lambda: thumbnail_img(filename, blob))
-                    thumbnail_location = ""
-                    if img is not None:
-                        thumbnail_location = f"thumbnail_{doc_id}.png"
-                        run_substep(
-                            3, 3, 3, "保存缩略图",
-                            lambda: settings.STORAGE_IMPL.put(kb.id, thumbnail_location, img)
-                        )
-                    else:
-                        run_substep(3, 3, 3, "保存缩略图", lambda: None)
-                    return thumbnail_location
-
-                thumbnail_location = run_step(3, "保存文件与缩略图", step3_save_file_and_thumbnail)
+                img = thumbnail_img(filename, blob)
+                thumbnail_location = ""
+                if img is not None:
+                    thumbnail_location = f"thumbnail_{doc_id}.png"
+                    settings.STORAGE_IMPL.put(kb.id, thumbnail_location, img)
 
                 doc = {
                     "id": doc_id,
@@ -578,13 +486,12 @@ class FileService(CommonService):
                     "size": len(blob),
                     "thumbnail": thumbnail_location,
                 }
-                run_step(4, "写入文档记录", lambda: DocumentService.insert(doc))
+                DocumentService.insert(doc)
 
-                run_step(5, "关联到知识库", lambda: FileService.add_file_from_kb(doc, kb_folder["id"], kb.tenant_id))
+                FileService.add_file_from_kb(doc, kb_folder["id"], kb.tenant_id)
                 files.append((doc, blob))
             except Exception as e:
-                upload_logger.exception(f"上传处理失败: {file_name}")
-                err.append(file_name + ": " + str(e))
+                err.append(file.filename + ": " + str(e))
 
         return err, files
 
@@ -770,3 +677,4 @@ class FileService(CommonService):
                 continue
             threads.append(exe.submit(FileService.parse, file["name"], FileService.get_blob(file["created_by"], file["id"]), True, file["created_by"]))
         return [th.result() for th in threads]
+

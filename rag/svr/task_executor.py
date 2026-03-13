@@ -42,6 +42,7 @@ from rag.prompts.generator import keyword_extraction, question_proposal, content
     gen_metadata
 import logging
 import os
+from logging.handlers import RotatingFileHandler
 from datetime import datetime
 import json
 import xxhash
@@ -71,6 +72,7 @@ from rag.utils.redis_conn import REDIS_CONN, RedisDistributedLock
 from graphrag.utils import chat_limiter
 from common.signal_utils import start_tracemalloc_and_snapshot, stop_tracemalloc
 from common.exceptions import TaskCanceledException
+from common.file_utils import get_project_base_directory
 from common import settings
 from common.constants import PAGERANK_FLD, TAG_FLD, SVR_CONSUMER_GROUP_NAME
 
@@ -114,6 +116,7 @@ DONE_TASKS = 0
 FAILED_TASKS = 0
 
 CURRENT_TASKS = {}
+UPLOAD_LOGGER = None
 
 MAX_CONCURRENT_TASKS = int(os.environ.get('MAX_CONCURRENT_TASKS', "5"))
 MAX_CONCURRENT_CHUNK_BUILDERS = int(os.environ.get('MAX_CONCURRENT_CHUNK_BUILDERS', "1"))
@@ -127,6 +130,32 @@ WORKER_HEARTBEAT_TIMEOUT = int(os.environ.get('WORKER_HEARTBEAT_TIMEOUT', '120')
 stop_event = threading.Event()
 
 
+def get_upload_logger():
+    logger = logging.getLogger("upload")
+    if getattr(logger, "_ragflow_upload_inited", False):
+        return logger
+
+    log_path = os.path.abspath(os.path.join(get_project_base_directory(), "logs", "upload.log"))
+    os.makedirs(os.path.dirname(log_path), exist_ok=True)
+
+    formatter = logging.Formatter("%(asctime)-15s %(levelname)-8s %(process)d %(message)s")
+    has_handler = False
+    for handler in logger.handlers:
+        if isinstance(handler, RotatingFileHandler) and os.path.abspath(getattr(handler, "baseFilename", "")) == log_path:
+            has_handler = True
+            break
+    if not has_handler:
+        handler = RotatingFileHandler(log_path, maxBytes=10 * 1024 * 1024, backupCount=5)
+        handler.setFormatter(formatter)
+        logger.addHandler(handler)
+
+    logger.setLevel(logging.INFO)
+    logger.propagate = False
+    logger._ragflow_upload_inited = True
+    logger.info(f"upload log path: {log_path}")
+    return logger
+
+
 def signal_handler(sig, frame):
     logging.info("Received interrupt signal, shutting down...")
     stop_event.set()
@@ -135,6 +164,7 @@ def signal_handler(sig, frame):
 
 
 def set_progress(task_id, from_page=0, to_page=-1, prog=None, msg="Processing..."):
+    global UPLOAD_LOGGER
     try:
         if prog is not None and prog < 0:
             msg = "[ERROR]" + msg
@@ -160,15 +190,22 @@ def set_progress(task_id, from_page=0, to_page=-1, prog=None, msg="Processing...
         if cancel:
             raise TaskCanceledException(msg)
         logging.info(f"set_progress({task_id}), progress: {prog}, progress_msg: {msg}")
+        if UPLOAD_LOGGER and msg:
+            # Mirror real parser progress into upload.log for real-time observation.
+            UPLOAD_LOGGER.info(msg)
     except DoesNotExist:
         logging.warning(f"set_progress({task_id}) got exception DoesNotExist")
+        if UPLOAD_LOGGER:
+            UPLOAD_LOGGER.warning(f"set_progress({task_id}) got exception DoesNotExist")
     except Exception as e:
         logging.exception(f"set_progress({task_id}), progress: {prog}, progress_msg: {msg}, got exception: {e}")
+        if UPLOAD_LOGGER:
+            UPLOAD_LOGGER.exception(f"set_progress({task_id}) got exception: {e}")
 
 
 async def collect():
     global CONSUMER_NAME, DONE_TASKS, FAILED_TASKS
-    global UNACKED_ITERATOR
+    global UNACKED_ITERATOR, UPLOAD_LOGGER
 
     svr_queue_names = settings.get_svr_queue_names()
     redis_msg = None
@@ -216,6 +253,16 @@ async def collect():
         logging.warning(f"collect task {msg['id']} {state}")
         redis_msg.ack()
         return None, None
+
+    if UPLOAD_LOGGER:
+        from_page = task.get("from_page", -1)
+        to_page = task.get("to_page", -1)
+        if isinstance(from_page, int) and isinstance(to_page, int) and to_page >= from_page >= 0:
+            UPLOAD_LOGGER.info(
+                f"{datetime.now().strftime('%H:%M:%S')} Page({from_page + 1}~{to_page + 1}): Task has been received."
+            )
+        else:
+            UPLOAD_LOGGER.info(f"{datetime.now().strftime('%H:%M:%S')} Task has been received.")
 
     task_type = msg.get("task_type", "")
     task["task_type"] = task_type
@@ -1349,4 +1396,5 @@ async def main():
 if __name__ == "__main__":
     faulthandler.enable()
     init_root_logger(CONSUMER_NAME)
+    UPLOAD_LOGGER = get_upload_logger()
     asyncio.run(main())
