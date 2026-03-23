@@ -96,6 +96,7 @@ services:
       - ../common/constants.py:/ragflow/common/constants.py
       - ../common/settings.py:/ragflow/common/settings.py
       - ../rag/utils/local_fs_conn.py:/ragflow/rag/utils/local_fs_conn.py
+      - ../api/db/services/file_service.py:/ragflow/api/db/services/file_service.py
       - ./ragflow-venv:/ragflow/.venv
       - ./pip-cache:/root/.cache/uv
       - ./ragflow-logs:/ragflow/logs
